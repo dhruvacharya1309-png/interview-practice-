@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interview Practice</title>
+<style>
+  :root {
+    --teal: #1F5C5C;
+    --offwhite: #FAF7F2;
+    --amber: #E8A33D;
+    --charcoal: #2B2B2B;
+    --sage: #A8C5A0;
+    --terracotta: #C97B63;
+    --sand: #EFE8DC;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Georgia, "Times New Roman", serif;
+    background: var(--offwhite);
+    color: var(--charcoal);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 18px 60px; }
+  h1 { color: var(--teal); font-size: 1.6rem; margin-bottom: 4px; }
+  .sub { color: var(--charcoal); opacity: 0.75; margin-top: 0; }
+  .card {
+    background: var(--sand);
+    border-radius: 12px;
+    padding: 18px;
+    margin: 18px 0;
+  }
+  label { display: block; font-weight: bold; margin-bottom: 6px; color: var(--teal); }
+  select, textarea {
+    width: 100%;
+    font: inherit;
+    padding: 10px;
+    border: 1px solid #cfc6b5;
+    border-radius: 8px;
+    background: #fff;
+  }
+  textarea { min-height: 120px; resize: vertical; }
+  button {
+    background: var(--teal);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font: inherit;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  button.secondary { background: var(--amber); color: var(--charcoal); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .progress { color: var(--teal); font-weight: bold; }
+  .feedback {
+    border-left: 4px solid var(--sage);
+    padding: 8px 12px;
+    margin-top: 12px;
+    background: #fff;
+    border-radius: 6px;
+  }
+  .hidden { display: none; }
+  .note { font-size: 0.9rem; opacity: 0.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Interview Practice</h1>
+  <p class="sub">Answer in your own words. Keep it to the point.</p>
+
+  <!-- SCREEN 1: Setup -->
+  <div id="setup" class="card">
+    <label for="field">Choose your field</label>
+    <select id="field">
+      <option>Finance</option>
+      <option>HR</option>
+      <option>Marketing</option>
+      <option>Product management</option>
+      <option>International business</option>
+      <option>General</option>
+      <option>Other</option>
+    </select>
+
+    <label for="count" style="margin-top:14px;">How many questions? (5 to 25)</label>
+    <input id="count" type="number" min="5" max="25" value="10"
+           style="width:100%;padding:10px;font:inherit;border:1px solid #cfc6b5;border-radius:8px;">
+
+    <button id="startBtn">Start practice</button>
+  </div>
+
+  <!-- SCREEN 2: Practice -->
+  <div id="practice" class="hidden">
+    <p class="progress" id="counter"></p>
+
+    <div class="card">
+      <p id="question" style="font-size:1.1rem;margin:0;"></p>
+    </div>
+
+    <label for="answer">Your answer</label>
+    <textarea id="answer" placeholder="Type your answer here..."></textarea>
+    <button id="submitBtn">Submit answer</button>
+
+    <div id="feedback" class="feedback hidden"></div>
+  </div>
+
+  <!-- SCREEN 3: Report -->
+  <div id="report" class="card hidden">
+    <h2 style="color:var(--teal);margin-top:0;">Your session report</h2>
+    <p id="summary"></p>
+    <p><strong>Focus next:</strong> <span id="focus"></span></p>
+    <p><strong>Your next step:</strong> <span id="nextStep"></span></p>
+    <button id="retryBtn" class="secondary">Try again</button>
+    <button id="homeBtn">Back to home</button>
+  </div>
+
+</div>
+
+<script>
+  // ---- Questions: opening, then per-field starters ----
+  const OPENING = "What describes you the most?";
+
+  const FIELD_QUESTIONS = {
+    "Finance": [
+      "Tell me about a time you worked with numbers to make a decision.",
+      "Walk me through how you would read a company's profit and loss statement.",
+      "How would you explain a budget variance to someone with no finance background?"
+    ],
+    "HR": [
+      "Tell me about a time you had to resolve a conflict in a team.",
+      "How would you handle an employee who keeps missing deadlines?",
+      "What makes a hiring process fair, in your view?"
+    ],
+    "Marketing": [
+      "Tell me about a campaign you planned or would like to plan.",
+      "How would you decide which channel to spend money on?",
+      "How do you measure whether a marketing campaign worked?"
+    ],
+    "Product management": [
+      "Tell me about a product you use often and what you would improve.",
+      "How would you decide which feature to build first?",
+      "How do you know when a product is ready to launch?"
+    ],
+    "International business": [
+      "Tell me about a time you worked with people from another culture.",
+      "What would you check before entering a new country's market?",
+      "How would you handle a delay caused by customs or shipping?"
+    ],
+    "General": [
+      "Tell me about a goal you set for yourself and how you reached it.",
+      "Describe a decision you made under pressure.",
+      "What is one thing you would do differently in your last job or studies?"
+    ],
+    "Other": [
+      "Tell me about the work you want to do in your field.",
+      "What is one skill you have built that matters for this work?",
+      "Describe a challenge you faced in this area and how you handled it."
+    ]
+  };
+
+  const FOLLOW_UPS = [
+    "What was the hardest part of that?",
+    "Can you give me a specific example?",
+    "What was the result, and how did you measure it?",
+    "Why did you choose that approach over another?",
+    "What would you do differently next time?"
+  ];
+
+  // ---- State ----
+  let field = "General";
+  let total = 10;
+  let asked = 0;
+  let currentQuestion = "";
+  let answers = [];
+  let step = 0; // rotates through questions and follow-ups
+
+  // ---- Helpers ----
+  const $ = id => document.getElementById(id);
+
+  function pick(list) {
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  function nextQuestion() {
+    // Entry trail: first question is the opener, then alternate field and follow-up
+    if (asked === 0) return OPENING;
+    if (step % 2 === 1) return pick(FIELD_QUESTIONS[field]);
+    return pick(FOLLOW_UPS);
+  }
+
+  function summarise(text) {
+    // Long answers: show a short summary back to the student
+    const words = text.trim().split(/\s+/);
+    if (words.length <= 60) return null;
+    return "That's a lot of detail. In short: " + words.slice(0, 25).join(" ") + "...";
+  }
+
+  function feedbackFor(text) {
+    const words = text.trim().split(/\s+/).length;
+    const tips = [];
+    if (words < 15) tips.push("Give a little more detail, such as an example or a result.");
+    if (words > 60) tips.push("Stay on point. Lead with the main answer, then add one example.");
+    if (!/\b(I|my|we)\b/i.test(text)) tips.push("Use 'I' to say what you did. Interviewers want your own actions.");
+    if (/\b(always|never|best|perfect|guarantee)\b/i.test(text)) tips.push("Avoid absolute claims unless you can back them up.");
+    if (tips.length === 0) tips.push("Good. Keep the same clear structure in the next answer.");
+    return tips;
+  }
+
+  function showQuestion() {
+    currentQuestion = nextQuestion();
+    $("question").textContent = currentQuestion;
+    $("counter").textContent = "Question " + (asked + 1) + " of " + total;
+    $("answer").value = "";
+    $("feedback").classList.add("hidden");
+  }
+
+  // ---- Events ----
+  $("startBtn").onclick = () => {
+    field = $("field").value;
+    total = Math.min(25, Math.max(5, parseInt($("count").value) || 10));
+    asked = 0; step = 0; answers = [];
+    $("setup").classList.add("hidden");
+    $("report").classList.add("hidden");
+    $("practice").classList.remove("hidden");
+    showQuestion();
+  };
+
+  $("submitBtn").onclick = () => {
+    const text = $("answer").value.trim();
+    if (!text) { alert("Please type an answer first."); return; }
+
+    answers.push({ question: currentQuestion, answer: text });
+    asked++;
+    step++;
+
+    const tips = feedbackFor(text);
+    const summary = summarise(text);
+    let html = "";
+    if (summary) html += "<p>" + summary + "</p>";
+    html += "<ul>" + tips.map(t => "<li>" + t + "</li>").join("") + "</ul>";
+    $("feedback").innerHTML = html;
+    $("feedback").classList.remove("hidden");
+
+    if (asked >= total) {
+      setTimeout(showReport, 600);
+    } else {
+      setTimeout(showQuestion, 600);
+    }
+  };
+
+  function showReport() {
+    $("practice").classList.add("hidden");
+    $("report").classList.remove("hidden");
+    const count = answers.length;
+    $("summary").textContent = "You answered " + count + " questions in " + field + ". Your answers are saved for this session only.";
+    $("focus").textContent = "Check that each answer has one clear example and one result.";
+    $("nextStep").textContent = "Answer one question again, adding a specific result at the end.";
+  }
+
+  $("retryBtn").onclick = () => {
+    asked = 0; step = 0; answers = [];
+    $("report").classList.add("hidden");
+    $("practice").classList.remove("hidden");
+    showQuestion();
+  };
+
+  $("homeBtn").onclick = () => {
+    $("report").classList.add("hidden");
+    $("practice").classList.add("hidden");
+    $("setup").classList.remove("hidden");
+  };
+</script>
+</body>
+</html>
