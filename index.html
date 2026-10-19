@@ -6,63 +6,26 @@
 <title>Interview Practice</title>
 <style>
   :root {
-    --teal: #1F5C5C;
-    --offwhite: #FAF7F2;
-    --amber: #E8A33D;
-    --charcoal: #2B2B2B;
-    --sage: #A8C5A0;
-    --terracotta: #C97B63;
-    --sand: #EFE8DC;
+    --teal: #1F5C5C; --offwhite: #FAF7F2; --amber: #E8A33D; --charcoal: #2B2B2B;
+    --sage: #A8C5A0; --terracotta: #C97B63; --sand: #EFE8DC;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: Georgia, "Times New Roman", serif;
-    background: var(--offwhite);
-    color: var(--charcoal);
-    line-height: 1.6;
-  }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 18px 60px; }
+  body { margin: 0; font-family: Georgia, "Times New Roman", serif; background: var(--offwhite); color: var(--charcoal); line-height: 1.6; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 60px; }
   h1 { color: var(--teal); font-size: 1.6rem; margin-bottom: 4px; }
-  .sub { color: var(--charcoal); opacity: 0.75; margin-top: 0; }
-  .card {
-    background: var(--sand);
-    border-radius: 12px;
-    padding: 18px;
-    margin: 18px 0;
-  }
-  label { display: block; font-weight: bold; margin-bottom: 6px; color: var(--teal); }
-  select, textarea {
-    width: 100%;
-    font: inherit;
-    padding: 10px;
-    border: 1px solid #cfc6b5;
-    border-radius: 8px;
-    background: #fff;
-  }
+  .sub { margin-top: 0; opacity: 0.75; }
+  .card { background: var(--sand); border-radius: 12px; padding: 18px; margin: 18px 0; }
+  label { display: block; font-weight: bold; margin: 14px 0 6px; color: var(--teal); }
+  label:first-child { margin-top: 0; }
+  select, textarea, input[type=number] { width: 100%; font: inherit; padding: 10px; border: 1px solid #cfc6b5; border-radius: 8px; background: #fff; }
   textarea { min-height: 120px; resize: vertical; }
-  button {
-    background: var(--teal);
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    padding: 12px 20px;
-    font: inherit;
-    cursor: pointer;
-    margin-top: 10px;
-  }
+  button { background: var(--teal); color: #fff; border: none; border-radius: 8px; padding: 12px 20px; font: inherit; cursor: pointer; margin: 10px 8px 0 0; }
   button.secondary { background: var(--amber); color: var(--charcoal); }
   button:disabled { opacity: 0.5; cursor: default; }
   .progress { color: var(--teal); font-weight: bold; }
-  .feedback {
-    border-left: 4px solid var(--sage);
-    padding: 8px 12px;
-    margin-top: 12px;
-    background: #fff;
-    border-radius: 6px;
-  }
+  .feedback { border-left: 4px solid var(--sage); padding: 8px 12px; margin-top: 12px; background: #fff; border-radius: 6px; }
+  .note { font-size: 0.85rem; opacity: 0.75; }
   .hidden { display: none; }
-  .note { font-size: 0.9rem; opacity: 0.8; }
 </style>
 </head>
 <body>
@@ -71,7 +34,7 @@
   <h1>Interview Practice</h1>
   <p class="sub">Answer in your own words. Keep it to the point.</p>
 
-  <!-- SCREEN 1: Setup -->
+  <!-- SETUP -->
   <div id="setup" class="card">
     <label for="field">Choose your field</label>
     <select id="field">
@@ -83,30 +46,26 @@
       <option>General</option>
       <option>Other</option>
     </select>
-
-    <label for="count" style="margin-top:14px;">How many questions? (5 to 25)</label>
-    <input id="count" type="number" min="5" max="25" value="10"
-           style="width:100%;padding:10px;font:inherit;border:1px solid #cfc6b5;border-radius:8px;">
-
+    <label for="count">How many questions? (5 to 25)</label>
+    <input id="count" type="number" min="5" max="25" value="10">
     <button id="startBtn">Start practice</button>
   </div>
 
-  <!-- SCREEN 2: Practice -->
+  <!-- PRACTICE -->
   <div id="practice" class="hidden">
     <p class="progress" id="counter"></p>
-
-    <div class="card">
-      <p id="question" style="font-size:1.1rem;margin:0;"></p>
-    </div>
-
+    <div class="card"><p id="question" style="font-size:1.1rem;margin:0;"></p></div>
+    <p class="note" id="aiNote"></p>
     <label for="answer">Your answer</label>
     <textarea id="answer" placeholder="Type your answer here..."></textarea>
     <button id="submitBtn">Submit answer</button>
-
     <div id="feedback" class="feedback hidden"></div>
+    <div id="finishArea" class="hidden">
+      <button id="finishBtn" class="secondary">See my report</button>
+    </div>
   </div>
 
-  <!-- SCREEN 3: Report -->
+  <!-- REPORT -->
   <div id="report" class="card hidden">
     <h2 style="color:var(--teal);margin-top:0;">Your session report</h2>
     <p id="summary"></p>
@@ -119,17 +78,16 @@
 </div>
 
 <script>
-  // ---- Questions: opening, then per-field starters ----
   const OPENING = "What describes you the most?";
 
   const FIELD_QUESTIONS = {
     "Finance": [
       "Tell me about a time you worked with numbers to make a decision.",
-      "Walk me through how you would read a company's profit and loss statement.",
+      "How would you read a company's profit and loss statement?",
       "How would you explain a budget variance to someone with no finance background?"
     ],
     "HR": [
-      "Tell me about a time you had to resolve a conflict in a team.",
+      "Tell me about a time you resolved a conflict in a team.",
       "How would you handle an employee who keeps missing deadlines?",
       "What makes a hiring process fair, in your view?"
     ],
@@ -160,42 +118,18 @@
     ]
   };
 
-  const FOLLOW_UPS = [
+  // Used only if the AI helper is unavailable
+  const FALLBACK_FOLLOWUPS = [
     "What was the hardest part of that?",
     "Can you give me a specific example?",
     "What was the result, and how did you measure it?",
-    "Why did you choose that approach over another?",
-    "What would you do differently next time?"
+    "Why did you choose that approach over another?"
   ];
 
-  // ---- State ----
-  let field = "General";
-  let total = 10;
-  let asked = 0;
-  let currentQuestion = "";
-  let answers = [];
-  let step = 0; // rotates through questions and follow-ups
+  let field = "General", total = 10, current = "", answers = [], busy = false;
 
-  // ---- Helpers ----
   const $ = id => document.getElementById(id);
-
-  function pick(list) {
-    return list[Math.floor(Math.random() * list.length)];
-  }
-
-  function nextQuestion() {
-    // Entry trail: first question is the opener, then alternate field and follow-up
-    if (asked === 0) return OPENING;
-    if (step % 2 === 1) return pick(FIELD_QUESTIONS[field]);
-    return pick(FOLLOW_UPS);
-  }
-
-  function summarise(text) {
-    // Long answers: show a short summary back to the student
-    const words = text.trim().split(/\s+/);
-    if (words.length <= 60) return null;
-    return "That's a lot of detail. In short: " + words.slice(0, 25).join(" ") + "...";
-  }
+  const pick = list => list[Math.floor(Math.random() * list.length)];
 
   function feedbackFor(text) {
     const words = text.trim().split(/\s+/).length;
@@ -208,67 +142,118 @@
     return tips;
   }
 
-  function showQuestion() {
-    currentQuestion = nextQuestion();
-    $("question").textContent = currentQuestion;
-    $("counter").textContent = "Question " + (asked + 1) + " of " + total;
+  async function getFollowUp(lastAnswer) {
+    try {
+      const res = await fetch("/.netlify/functions/followup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field,
+          lastAnswer,
+          history: answers.slice(-6).map(a => ({ question: a.question, answer: a.answer }))
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.followUp) return { text: data.followUp, ai: true };
+    } catch (e) { /* fall through */ }
+    return { text: pick(FALLBACK_FOLLOWUPS), ai: false };
+  }
+
+  function showQuestion(text, ai) {
+    current = text;
+    $("question").textContent = text;
+    $("counter").textContent = "Question " + (answers.length + 1) + " of " + total;
+    $("aiNote").textContent = ai === false ? "AI is unavailable right now, so a standard question is shown." : "";
     $("answer").value = "";
-    $("feedback").classList.add("hidden");
+  }
+
+  function setBusy(on) {
+    busy = on;
+    $("submitBtn").disabled = on;
+    $("submitBtn").textContent = on ? "Thinking..." : "Submit answer";
   }
 
   // ---- Events ----
   $("startBtn").onclick = () => {
     field = $("field").value;
     total = Math.min(25, Math.max(5, parseInt($("count").value) || 10));
-    asked = 0; step = 0; answers = [];
+    answers = [];
     $("setup").classList.add("hidden");
     $("report").classList.add("hidden");
+    $("finishArea").classList.add("hidden");
+    $("submitBtn").classList.remove("hidden");
+    $("answer").classList.remove("hidden");
     $("practice").classList.remove("hidden");
-    showQuestion();
+    $("feedback").classList.add("hidden");
+    showQuestion(OPENING, true);
   };
 
-  $("submitBtn").onclick = () => {
+  $("submitBtn").onclick = async () => {
+    if (busy) return;
     const text = $("answer").value.trim();
     if (!text) { alert("Please type an answer first."); return; }
 
-    answers.push({ question: currentQuestion, answer: text });
-    asked++;
-    step++;
+    answers.push({ question: current, answer: text });
 
     const tips = feedbackFor(text);
-    const summary = summarise(text);
     let html = "";
-    if (summary) html += "<p>" + summary + "</p>";
+    if (text.split(/\s+/).length > 60) {
+      html += "<p>That's a lot of detail. In short: " + text.split(/\s+/).slice(0, 25).join(" ") + "...</p>";
+    }
     html += "<ul>" + tips.map(t => "<li>" + t + "</li>").join("") + "</ul>";
     $("feedback").innerHTML = html;
     $("feedback").classList.remove("hidden");
 
-    if (asked >= total) {
-      setTimeout(showReport, 600);
-    } else {
-      setTimeout(showQuestion, 600);
+    // Finished: show the button to open the report (no timer)
+    if (answers.length >= total) {
+      $("answer").value = "";
+      $("question").textContent = "You've answered all " + total + " questions.";
+      $("counter").textContent = "Done";
+      $("aiNote").textContent = "";
+      $("submitBtn").classList.add("hidden");
+      $("answer").classList.add("hidden");
+      $("finishArea").classList.remove("hidden");
+      return;
     }
+
+    setBusy(true);
+    let next;
+    if (answers.length % 2 === 1) {
+      // Odd count: a follow-up on the last answer
+      next = await getFollowUp(text);
+    } else {
+      // Even count: a field question
+      next = { text: pick(FIELD_QUESTIONS[field]), ai: true };
+    }
+    showQuestion(next.text, next.ai);
+    setBusy(false);
   };
 
-  function showReport() {
+  $("finishBtn").onclick = () => {
     $("practice").classList.add("hidden");
     $("report").classList.remove("hidden");
-    const count = answers.length;
-    $("summary").textContent = "You answered " + count + " questions in " + field + ". Your answers are saved for this session only.";
+    const words = answers.map(a => a.answer.split(/\s+/).length);
+    const longest = Math.max(...words), shortest = Math.min(...words);
+    $("summary").textContent = "You answered " + answers.length + " questions in " + field + ". Your longest answer was " + longest + " words and your shortest was " + shortest + ".";
     $("focus").textContent = "Check that each answer has one clear example and one result.";
-    $("nextStep").textContent = "Answer one question again, adding a specific result at the end.";
-  }
+    $("nextStep").textContent = "Try one answer again, and end it with a specific result.";
+  };
 
   $("retryBtn").onclick = () => {
-    asked = 0; step = 0; answers = [];
+    answers = [];
     $("report").classList.add("hidden");
+    $("finishArea").classList.add("hidden");
+    $("answer").classList.remove("hidden");
+    $("submitBtn").classList.remove("hidden");
     $("practice").classList.remove("hidden");
-    showQuestion();
+    $("feedback").classList.add("hidden");
+    showQuestion(OPENING, true);
   };
 
   $("homeBtn").onclick = () => {
     $("report").classList.add("hidden");
     $("practice").classList.add("hidden");
+    $("answer").classList.remove("hidden");
     $("setup").classList.remove("hidden");
   };
 </script>
