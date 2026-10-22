@@ -1,514 +1,158 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Interview Practice</title>
-<style>
-  :root {
-    --teal: #1F5C5C; --offwhite: #FAF7F2; --amber: #E8A33D; --charcoal: #2B2B2B;
-    --sage: #A8C5A0; --terracotta: #C97B63; --sand: #EFE8DC;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: Georgia, "Times New Roman", serif; background: var(--offwhite); color: var(--charcoal); line-height: 1.6; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 60px; }
-  h1 { color: var(--teal); font-size: 1.6rem; margin-bottom: 4px; }
-  h2 { color: var(--teal); font-size: 1.2rem; margin: 22px 0 6px; }
-  .sub { margin-top: 0; opacity: 0.75; }
-  .card { background: var(--sand); border-radius: 12px; padding: 18px; margin: 18px 0; }
-  label { display: block; font-weight: bold; margin: 14px 0 6px; color: var(--teal); }
-  select, input[type=number] { width: 100%; font: inherit; padding: 10px; border: 1px solid #cfc6b5; border-radius: 8px; background: #fff; }
-  button { background: var(--teal); color: #fff; border: none; border-radius: 8px; padding: 12px 20px; font: inherit; cursor: pointer; margin: 10px 8px 0 0; }
-  button.secondary { background: var(--amber); color: var(--charcoal); }
-  button:disabled { opacity: 0.45; cursor: default; }
-  .status { font-weight: bold; color: var(--teal); }
-  .note { font-size: 0.85rem; opacity: 0.75; }
-  .hidden { display: none; }
-  ul { padding-left: 20px; }
-  .level { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #fff; border: 1px solid #cfc6b5; font-size: 0.9rem; margin: 0 6px; }
-  .quote { border-left: 3px solid var(--terracotta); padding-left: 10px; margin: 6px 0; font-style: italic; }
-  .heard { background: #fff; border-radius: 8px; padding: 10px 12px; min-height: 3.2em; font-size: 1.05rem; }
-  .log { background: #fff; border-radius: 8px; padding: 8px 12px; max-height: 220px; overflow-y: auto; font-size: 0.92rem; }
-  .log p { margin: 4px 0; }
-  .log .q { color: var(--teal); font-weight: bold; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
-  td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid #d9cfbd; vertical-align: top; }
-  .consent label { font-weight: normal; color: var(--charcoal); display: flex; gap: 8px; align-items: flex-start; }
-</style>
-</head>
-<body>
-<div class="wrap">
+// Netlify function: one endpoint, two jobs.
+// action "turn": reads the latest spoken answer, then writes the next spoken reply and question.
+// action "report": reads every answer and writes the full practice report.
+// The API key stays on the server (GEMINI_API_KEY in Netlify).
 
-  <h1>Interview Practice</h1>
-  <p class="sub">Speak your answers. Take your time.</p>
+// Change the level names here. The page shows whatever is listed.
+const LEVELS = ["Strong", "Good", "Developing", "Needs work", "Not yet assessed"];
 
-  <!-- SETUP -->
-  <div id="setup" class="card">
-    <label for="field">Choose your field</label>
-    <select id="field">
-      <option>Finance</option>
-      <option>HR</option>
-      <option>Marketing</option>
-      <option>Product management</option>
-      <option>International business</option>
-      <option>General</option>
-      <option>Other</option>
-    </select>
-    <label for="count">How many questions? (5 to 25)</label>
-    <input id="count" type="number" min="5" max="25" value="10">
-    <button id="toConsent">Continue</button>
-  </div>
+const FLAG_LABELS = [
+  "Off topic",
+  "Vague or exaggerated",
+  "Rambling",
+  "Unfair means",
+  "Read-aloud or scripted sound",
+  "Worth checking"
+];
 
-  <!-- CONSENT -->
-  <div id="consent" class="card consent hidden">
-    <h2>Before we start</h2>
-    <p>This practice uses your microphone. Your speech is turned into text by your browser's built-in speech feature. In Chrome, that speech is processed by Google. We measure your pace, pauses, filler words and pitch to write your report.</p>
-    <p>We don't keep the recording or the transcript after you close this page. Your report may mention things that were hard to measure. It may also note answers that sounded read aloud or scripted. These are things to review, not a verdict on you.</p>
-    <label><input type="checkbox" id="agree"> I understand and agree to this.</label>
-    <button id="startBtn" disabled>I agree and start</button>
-    <p class="note" id="supportNote"></p>
-  </div>
+const TURN_RULES = (field) => `You are a real interviewer for the field: ${field}, talking with a student out loud.
+You receive the student's latest answer as speech turned into text, the question you just asked, and the conversation so far.
 
-  <!-- INTERVIEW -->
-  <div id="interview" class="hidden">
-    <p class="status" id="status"></p>
-    <p class="note" id="counter"></p>
-    <div class="card"><p id="question" style="font-size:1.15rem;margin:0;"></p></div>
-    <p class="note" id="aiNote"></p>
+Write your spoken reply in two parts, in this order:
 
-    <p class="note" style="margin:0 0 4px;">What I'm hearing from you</p>
-    <div id="liveText" class="heard"></div>
+1. One short line that responds to what they actually said:
+- A specific point: acknowledge it in a few words, in your own words.
+- "I don't know", "idk", or a very short or empty answer: no cushioning and no kind lines. Say it directly, for example "You need to work harder on this. Let's make it simpler." Do not praise, do not apologise, do not say "that's okay".
+- A long answer: "Keep it to the main point next time."
+- A very large claim or sole credit for team work: "Good. Tell me exactly what you did, in your own words."
+- Off topic: "Let's come back to the question."
 
-    <details style="margin-top:12px;">
-      <summary class="note">Transcript so far</summary>
-      <div id="transcriptLog" class="log"></div>
-    </details>
+2. Exactly ONE question. It must be spontaneous, so it comes from the most interesting, unclear, or surprising thing in their latest answer.
+- Sometimes go deeper on their point, for example asking for a number, a step, or a reason.
+- Sometimes test a related situation that a real ${field} interviewer would ask.
+- If they said they don't know or gave a very short answer, the question right after must be simpler than the last one, on the same point. Ask one concrete, easy question they can answer from their own experience, such as "What did you do in that project?" or "Name one tool you used there."
+- Never repeat a question from the conversation. Never use a generic question.
 
-    <button id="repeatBtn" class="secondary" disabled>Repeat question</button>
-    <button id="finishBtn" disabled>Finish answer</button>
-  </div>
+Rules for speech:
+- Plain spoken English, short sentences, contractions are fine.
+- No lists, no markdown, no praise like "great answer".
+- At most three sentences in total, with one question mark.
 
-  <!-- LOADING -->
-  <div id="loading" class="card hidden">
-    <p class="status">Writing your report. This takes about a minute.</p>
-  </div>
+Also classify the answer as one type: "clear", "vague", "unsure", "off_topic", "exaggerated", "long", or "empty".
 
-  <!-- REPORT (filled by the script) -->
-  <div id="report" class="hidden"></div>
+Reply with JSON only, in exactly this shape:
+{"type": "one of the types above", "keyPoint": "the main point of the answer, under 15 words", "reply": "what the student hears"}`;
 
-</div>
+const REPORT_RULES = (field) => `You are an interview evaluator writing a practice report for a student in the field: ${field}.
+You receive every answer (speech turned into text) and the measured speech data for each answer.
 
-<script>
-  const OPENING = "What describes you the most?";
+Judge only what was said and how it was said, using the words and the measured speech data. Never judge the person's character, emotions, or honesty. Use specific, supportive language. Coach, don't grade harshly.
 
-  // Used only if the AI is unavailable. The page says so when this is used.
-  const FALLBACK_FOLLOWUPS = [
-    "Can you tell me a bit more about that?",
-    "Can you give me a specific example?",
-    "What was the result, and how did you measure it?",
-    "Why did you choose that approach over another?"
-  ];
+Check these areas:
+1. Relevance: did they answer the question in the first two or three sentences? Did they drift into unrelated detail? If they didn't know, did they honestly pivot to a related skill?
+2. Authenticity: are there numbers, timelines, or concrete results? Do they say "I" for their own actions, and acknowledge team work where it applies? Note buzzwords with no substance. Treat big claims without proof as "worth checking", never as dishonest.
+3. Structure (situation, task, action, result): do most of their words describe what they did? Does the answer end on a result or a takeaway?
+4. Delivery, from the speech data: pace (about 110 to 160 words per minute is comfortable), pitch variation, pauses (long pauses in the middle of a sentence matter more than a pause before starting), and filler words. Give coaching, not verdicts.
+5. Unfair means: flag only with clear evidence, such as an answer that reads like a memorised script, or a claim the student contradicts later. Always quote the words used.
+6. Read-aloud or scripted sound: if answers sound read out (very low pitch variation together with long, polished, buzzword-heavy sentences and no personal detail), record this as an observation for review. Never claim that an AI or device was used.
+7. Consistency: do the answers agree with each other?
+8. Confidence: judge from the words only, such as commitment to a point versus repeated hedging.
 
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+Score each area with exactly one level from: ${LEVELS.join(", ")}. Use "Not yet assessed" if the answers did not cover the area.
+Areas: Relevance, Authenticity, Structure, Depth under follow-up, Job fit for ${field}, Consistency, Delivery, Confidence.
 
-  let field = "General", total = 10, current = OPENING, answers = [];
-  let listening = false, endResolve = null;
-  let recog = null, stream = null, audioCtx = null, analyser = null, buf = null, timer = null;
-  let finals = [], liveInterim = "", startedAt = 0, speechStartAt = 0, lastVoicedAt = 0, pauses = [], pitches = [], sharpSounds = 0, prevRms = 0;
+Reply with JSON only, in exactly this shape:
+{
+ "summary": "three or four sentences of overview",
+ "scores": [{"area": "...", "level": "one of the levels", "note": "one specific sentence about their answers"}],
+ "strengths": ["up to three specific strengths"],
+ "focus": ["at most two clear actions"],
+ "nextStep": "one sentence",
+ "evidence": {"numbers": ["numbers or results they gave"], "tools_and_skills": ["tools or skills they named"], "quotes": ["short quotes that support the report"]},
+ "flags": [{"label": "one of: ${FLAG_LABELS.join(" | ")}", "detail": "one or two sentences", "quote": "the exact words"}],
+ "hard_to_detect": ["anything that could not be measured reliably, in plain words"]
+}`;
 
-  const $ = id => document.getElementById(id);
-  const pick = list => list[Math.floor(Math.random() * list.length)];
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const round = (n, d) => Math.round(n * 10 ** d) / 10 ** d;
-
-  function el(tag, text, cls) {
-    const e = document.createElement(tag);
-    if (text !== undefined) e.textContent = text;
-    if (cls) e.className = cls;
-    return e;
-  }
-  function list(items) {
-    const ul = el("ul");
-    (items || []).forEach(i => ul.appendChild(el("li", i)));
-    return ul;
-  }
-  function show(id) {
-    ["setup", "consent", "interview", "loading", "report"].forEach(x => $(x).classList.toggle("hidden", x !== id));
-  }
-  function setStatus(t) { $("status").textContent = t; }
-
-  // ---- Setup and consent ----
-  if (!SR) {
-    $("supportNote").textContent = "This browser can't do voice practice. Please open the link in Chrome.";
-  }
-  $("agree").onchange = () => { $("startBtn").disabled = !($("agree").checked && SR); };
-
-  $("toConsent").onclick = () => {
-    field = $("field").value;
-    total = Math.min(25, Math.max(5, parseInt($("count").value) || 10));
-    show("consent");
-  };
-
-  $("startBtn").onclick = async () => {
-    try {
-      const test = await navigator.mediaDevices.getUserMedia({ audio: true });
-      test.getTracks().forEach(t => t.stop());
-    } catch (e) {
-      $("supportNote").textContent = "We need your microphone to continue. Please allow it in your browser settings, then try again.";
-      return;
+async function askGemini(system, prompt) {
+  const key = process.env.GEMINI_API_KEY;
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.8, responseMimeType: "application/json" }
+      })
     }
-    answers = [];
-    $("transcriptLog").innerHTML = "";
-    show("interview");
-    askQuestion(OPENING, "");
-  };
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error((data.error && data.error.message) || "AI error");
+  const raw = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
+  return JSON.parse(raw);
+}
 
-  // ---- Speaking: sentence by sentence, slower, with short pauses ----
-  function pickVoice() {
-    const voices = ("speechSynthesis" in window) ? speechSynthesis.getVoices() : [];
-    return voices.find(v => /^en/i.test(v.lang) && /google/i.test(v.name))
-        || voices.find(v => /^en/i.test(v.lang) && /natural|premium|enhanced/i.test(v.name))
-        || voices.find(v => /^en/i.test(v.lang))
-        || null;
+async function runTurn(field, input) {
+  const transcript = String(input.transcript || "(no speech recognised)").slice(0, 3000);
+  const question = String(input.question || "").slice(0, 400);
+  const history = (Array.isArray(input.history) ? input.history : []).slice(-6);
+  const past = history
+    .map((h) => `Question: ${String(h.question || "").slice(0, 300)}\nAnswer: ${String(h.transcript || "").slice(0, 1500)}`)
+    .join("\n\n");
+  const prompt =
+    `Conversation so far:\n${past || "(none yet)"}\n\n` +
+    `Question just asked: ${question}\n\n` +
+    `Student's latest answer (speech to text): ${transcript}\n\n` +
+    `Speech data for this answer: ${JSON.stringify(input.metadata || {})}`;
+
+  const out = await askGemini(TURN_RULES(field), prompt);
+  if (!out || !out.reply) throw new Error("No reply");
+  return { type: out.type || "", keyPoint: out.keyPoint || "", reply: out.reply };
+}
+
+async function runReport(field, input) {
+  const turns = (Array.isArray(input.turns) ? input.turns : []).slice(0, 25).map((t, i) => ({
+    number: i + 1,
+    question: String(t.question || "").slice(0, 400),
+    answer: String(t.transcript || "(no speech recognised)").slice(0, 3000),
+    speech_data: t.metadata || {}
+  }));
+  if (!turns.length) throw new Error("No answers");
+
+  const prompt = `Answers in this session:\n${JSON.stringify(turns, null, 1)}`;
+  const out = await askGemini(REPORT_RULES(field), prompt);
+  if (!out || !out.summary || !Array.isArray(out.scores)) throw new Error("Incomplete report");
+  return out;
+}
+
+exports.handler = async (event) => {
+  const headers = { "Content-Type": "application/json" };
+
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers, body: JSON.stringify({ error: "POST only" }) };
+  }
+  if (!process.env.GEMINI_API_KEY) {
+    return { statusCode: 500, headers, body: JSON.stringify({ error: "Missing GEMINI_API_KEY" }) };
   }
 
-  function speakOne(text) {
-    return new Promise(resolve => {
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "en-IN";
-      u.rate = 0.9;
-      u.pitch = 1.0;
-      const v = pickVoice();
-      if (v) u.voice = v;
-      const guard = setTimeout(resolve, Math.max(3000, text.length * 110));
-      u.onend = () => { clearTimeout(guard); resolve(); };
-      u.onerror = () => { clearTimeout(guard); resolve(); };
-      speechSynthesis.speak(u);
-    });
+  let input;
+  try {
+    input = JSON.parse(event.body || "{}");
+  } catch {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: "Bad request" }) };
   }
 
-  async function speak(text) {
-    if (!("speechSynthesis" in window)) return;
-    speechSynthesis.cancel();
-    const sentences = text.split(/(?<=[.?!])\s+/).filter(s => s.trim());
-    for (const s of sentences) {
-      await speakOne(s);
-      await sleep(250);
-    }
+  try {
+    const field = String(input.field || "General").slice(0, 60);
+    let result;
+    if (input.action === "turn") result = await runTurn(field, input);
+    else if (input.action === "report") result = await runReport(field, input);
+    else return { statusCode: 400, headers, body: JSON.stringify({ error: "Unknown action" }) };
+
+    return { statusCode: 200, headers, body: JSON.stringify(result) };
+  } catch (err) {
+    return { statusCode: 502, headers, body: JSON.stringify({ error: (err.message || "AI unavailable").slice(0, 200) }) };
   }
-
-  // ---- Interview loop ----
-  async function askQuestion(text, note) {
-    current = text;
-    show("interview");
-    $("question").textContent = text;
-    $("counter").textContent = "Question " + (answers.length + 1) + " of " + total;
-    $("aiNote").textContent = note || "";
-    $("liveText").textContent = "";
-    $("finishBtn").disabled = true;
-    $("repeatBtn").disabled = true;
-    setStatus("Speaking…");
-    await speak(text);
-    $("repeatBtn").disabled = false;
-    await listen();
-  }
-
-  async function listen() {
-    setStatus("Listening. Take your time, then tap Finish answer.");
-    await startAudio();
-    $("finishBtn").disabled = false;
-    $("repeatBtn").disabled = true;
-    await new Promise(r => { endResolve = r; });
-    $("finishBtn").disabled = true;
-    setStatus("Thinking…");
-
-    const { transcript, metadata } = await stopAudio();
-    answers.push({ question: current, transcript, metadata });
-
-    const log = $("transcriptLog");
-    log.appendChild(el("p", "Q: " + current, "q"));
-    log.appendChild(el("p", "A: " + (transcript || "(nothing recognised)")));
-    log.scrollTop = log.scrollHeight;
-
-    if (answers.length >= total) return finishInterview();
-
-    const next = await followUp(transcript, metadata);
-    await askQuestion(next.text, next.note);
-  }
-
-  async function followUp(transcript, metadata) {
-    try {
-      const history = answers.slice(Math.max(0, answers.length - 7), answers.length - 1)
-        .map(a => ({ question: a.question, transcript: a.transcript }));
-      const res = await fetch("/.netlify/functions/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "turn",
-          field,
-          question: current,
-          transcript: transcript || "(no speech recognised)",
-          metadata,
-          history
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.reply) return { text: data.reply, note: "" };
-      return { text: pick(FALLBACK_FOLLOWUPS), note: "AI reply unavailable (" + (data.error || "unknown error") + "). A standard question is shown." };
-    } catch (e) {
-      return { text: pick(FALLBACK_FOLLOWUPS), note: "AI reply unavailable (" + e.message + "). A standard question is shown." };
-    }
-  }
-
-  $("repeatBtn").onclick = () => { if (!listening) speak(current); };
-  $("finishBtn").onclick = () => {
-    if (endResolve) { const r = endResolve; endResolve = null; r(); }
-  };
-
-  // ---- Listening, live transcript and measuring ----
-  async function startAudio() {
-    finals = [];
-    liveInterim = "";
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
-    audioCtx.createMediaStreamSource(stream).connect(analyser);
-    buf = new Float32Array(analyser.fftSize);
-
-    startedAt = performance.now();
-    speechStartAt = 0; lastVoicedAt = 0; pauses = []; pitches = []; sharpSounds = 0; prevRms = 0;
-    timer = setInterval(sample, 100);
-
-    recog = new SR();
-    recog.lang = "en-IN";
-    recog.continuous = true;
-    recog.interimResults = true;
-    recog.maxAlternatives = 1;
-    recog.onresult = e => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) finals.push(r[0].transcript.trim());
-        else interim += r[0].transcript;
-      }
-      liveInterim = interim.trim();
-      $("liveText").textContent = (finals.join(" ") + " " + liveInterim).trim();
-    };
-    recog.onerror = e => {
-      if (e.error === "not-allowed") setStatus("Microphone is blocked. Allow it in your browser settings.");
-    };
-    recog.onend = () => {
-      if (listening) { try { recog.start(); } catch (e) {} }
-    };
-    listening = true;
-    recog.start();
-  }
-
-  function sample() {
-    analyser.getFloatTimeDomainData(buf);
-    const now = performance.now();
-    let sum = 0;
-    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-    const rms = Math.sqrt(sum / buf.length);
-
-    // Sudden sharp sounds (rough check for typing-like taps)
-    if (rms > 0.08 && prevRms > 0 && rms > prevRms * 6) sharpSounds++;
-    prevRms = rms;
-
-    if (rms > 0.02) {
-      if (!speechStartAt) speechStartAt = now;
-      if (lastVoicedAt && now - lastVoicedAt >= 1000) pauses.push((now - lastVoicedAt) / 1000);
-      lastVoicedAt = now;
-      const f0 = pitchOf(buf, audioCtx.sampleRate);
-      if (f0) pitches.push(12 * Math.log2(f0 / 100));
-    }
-  }
-
-  // Rough pitch estimate (autocorrelation), voice range about 70 to 400 Hz
-  function pitchOf(data, sr) {
-    let best = 0, bestLag = -1;
-    const minLag = Math.floor(sr / 400), maxLag = Math.floor(sr / 70);
-    for (let lag = minLag; lag <= maxLag; lag++) {
-      let c = 0;
-      for (let i = 0; i + lag < data.length; i++) c += data[i] * data[i + lag];
-      if (c > best) { best = c; bestLag = lag; }
-    }
-    return bestLag > 0 ? sr / bestLag : 0;
-  }
-
-  async function stopAudio() {
-    listening = false;
-    clearInterval(timer);
-    const endAt = performance.now();
-    try { recog.stop(); } catch (e) {}
-    await sleep(800); // let the last words arrive
-    stream.getTracks().forEach(t => t.stop());
-    audioCtx.close();
-
-    const transcript = (finals.join(" ") + " " + liveInterim).trim();
-    const speakingS = speechStartAt ? (endAt - speechStartAt) / 1000 : 0;
-    return { transcript, metadata: measure(transcript, (endAt - startedAt) / 1000, speakingS) };
-  }
-
-  function spread(values) {
-    if (values.length < 2) return 0;
-    const m = values.reduce((a, b) => a + b, 0) / values.length;
-    return Math.sqrt(values.reduce((a, b) => a + (b - m) ** 2, 0) / values.length);
-  }
-
-  function measure(transcript, durationS, speakingS) {
-    const words = transcript ? transcript.split(/\s+/).length : 0;
-    const fillers = (transcript.match(/\b(um+|uh+|erm|hmm|you know|i mean|basically|actually)\b/gi) || []).length;
-    const sd = spread(pitches);
-    return {
-      duration_s: round(durationS, 1),
-      speaking_s: round(speakingS, 1),
-      words,
-      wpm: speakingS > 5 ? Math.round(words / (speakingS / 60)) : 0,
-      pitch_variance: pitches.length < 5 ? "Not enough voice to measure" : sd < 2 ? "Low" : sd < 5 ? "Normal" : "High",
-      filler_count: fillers,
-      filler_per_min: speakingS > 5 ? round(fillers / (speakingS / 60), 1) : 0,
-      pause_count: pauses.length,
-      long_pause_count: pauses.filter(p => p >= 2).length,
-      longest_pause_s: pauses.length ? round(Math.max(...pauses), 1) : 0,
-      response_delay_s: speechStartAt ? round((speechStartAt - startedAt) / 1000, 1) : null,
-      sharp_sounds_count: sharpSounds
-    };
-  }
-
-  // ---- Report ----
-  async function finishInterview() {
-    show("loading");
-    try {
-      const res = await fetch("/.netlify/functions/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "report",
-          field,
-          turns: answers.map(a => ({
-            question: a.question,
-            transcript: a.transcript || "(no speech recognised)",
-            metadata: a.metadata
-          }))
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Report failed");
-      renderReport(data);
-    } catch (e) {
-      const box = $("report");
-      box.innerHTML = "";
-      box.className = "card";
-      box.appendChild(el("p", "The report could not be written just now. Your answers are still here. Reason: " + e.message));
-      const retry = el("button", "Try again");
-      retry.onclick = finishInterview;
-      box.appendChild(retry);
-      show("report");
-    }
-  }
-
-  function deliveryTable(metas) {
-    const v = metas.filter(m => m && m.words > 0);
-    const avg = k => v.length ? v.reduce((s, m) => s + (Number(m[k]) || 0), 0) / v.length : 0;
-    const sum = k => v.reduce((s, m) => s + (Number(m[k]) || 0), 0);
-    const delays = v.map(m => m.response_delay_s).filter(d => d !== null && d !== undefined);
-
-    const rows = [
-      ["Pace", v.length ? Math.round(avg("wpm")) + " words per minute (comfortable range is about 110 to 160)" : "Not measured"],
-      ["Pitch variation, per answer", v.map(m => m.pitch_variance).join(" / ") || "Not measured"],
-      ["Filler words", sum("filler_count") + " in total (about " + avg("filler_per_min").toFixed(1) + " per minute)"],
-      ["Pauses", sum("pause_count") + " in total, " + sum("long_pause_count") + " of them two seconds or longer"],
-      ["Longest pause", Math.max(0, ...v.map(m => Number(m.longest_pause_s) || 0)) + " seconds"],
-      ["Time before you started speaking", delays.length ? (delays.reduce((a, b) => a + b, 0) / delays.length).toFixed(1) + " seconds on average" : "Not measured"],
-      ["Typing-like sounds counted", sum("sharp_sounds_count") + " (worth reviewing, not confirmed)"]
-    ];
-
-    const t = el("table");
-    rows.forEach(([label, value]) => {
-      const tr = el("tr");
-      tr.appendChild(el("th", label));
-      tr.appendChild(el("td", value));
-      t.appendChild(tr);
-    });
-    return t;
-  }
-
-  function transcriptBlock() {
-    const wrap = el("div", undefined, "log");
-    answers.forEach((a, i) => {
-      wrap.appendChild(el("p", (i + 1) + ". Q: " + a.question, "q"));
-      wrap.appendChild(el("p", "A: " + (a.transcript || "(nothing recognised)")));
-    });
-    return wrap;
-  }
-
-  function renderReport(r) {
-    const box = $("report");
-    box.innerHTML = "";
-    box.className = "card";
-
-    box.appendChild(el("h2", "Your practice report"));
-    box.appendChild(el("p", r.summary || ""));
-
-    box.appendChild(el("h2", "Scores (first session, so this is your baseline)"));
-    (r.scores || []).forEach(s => {
-      const p = el("p");
-      p.appendChild(el("strong", s.area + ":"));
-      p.appendChild(el("span", s.level, "level"));
-      p.appendChild(el("span", s.note || ""));
-      box.appendChild(p);
-    });
-
-    box.appendChild(el("h2", "What worked"));
-    box.appendChild(list(r.strengths));
-
-    box.appendChild(el("h2", "Focus next"));
-    box.appendChild(list((r.focus || []).slice(0, 2)));
-    if (r.nextStep) box.appendChild(el("p", r.nextStep));
-
-    box.appendChild(el("h2", "How you spoke"));
-    box.appendChild(deliveryTable(answers.map(a => a.metadata)));
-
-    box.appendChild(el("h2", "Your words, as heard"));
-    box.appendChild(transcriptBlock());
-
-    const ev = r.evidence || {};
-    if ((ev.numbers || []).length) { box.appendChild(el("p", "Numbers and results you gave:")); box.appendChild(list(ev.numbers)); }
-    if ((ev.tools_and_skills || []).length) { box.appendChild(el("p", "Tools and skills you named:")); box.appendChild(list(ev.tools_and_skills)); }
-    (ev.quotes || []).forEach(q => box.appendChild(el("p", "\u201C" + q + "\u201D", "quote")));
-
-    box.appendChild(el("h2", "Worth reviewing"));
-    const flags = r.flags || [];
-    if (!flags.length) box.appendChild(el("p", "Nothing was flagged."));
-    flags.forEach(f => {
-      const p = el("p");
-      p.appendChild(el("strong", (f.label || "Note") + ": "));
-      p.appendChild(el("span", f.detail || ""));
-      box.appendChild(p);
-      if (f.quote) box.appendChild(el("p", "\u201C" + f.quote + "\u201D", "quote"));
-    });
-    box.appendChild(el("p", "These are things to look at, not a judgement of you.", "note"));
-
-    box.appendChild(el("h2", "What was hard to detect"));
-    box.appendChild(list([
-      "Voices other than yours are not measured in this version.",
-      "Typing-like sounds are counted, but they can be confused with other sudden sounds.",
-      ...(r.hard_to_detect || [])
-    ]));
-
-    const again = el("button", "Try again", "secondary");
-    again.onclick = () => { answers = []; show("setup"); };
-    const home = el("button", "Back to home");
-    home.onclick = () => { answers = []; show("setup"); };
-    box.appendChild(again);
-    box.appendChild(home);
-
-    show("report");
-  }
-
-  show("setup");
-</script>
-</body>
-</html>
+};
