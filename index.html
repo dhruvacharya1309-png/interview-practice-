@@ -477,7 +477,7 @@
     const ev = r.evidence || {};
     if ((ev.numbers || []).length) { box.appendChild(el("p", "Numbers and results you gave:")); box.appendChild(list(ev.numbers)); }
     if ((ev.tools_and_skills || []).length) { box.appendChild(el("p", "Tools and skills you named:")); box.appendChild(list(ev.tools_and_skills)); }
-    (ev.quotes || []).forEach(q => box.appendChild(el("p", "“" + q + "”", "quote")));
+    (ev.quotes || []).forEach(q => box.appendChild(el("p", "\u201C" + q + "\u201D", "quote")));
 
     box.appendChild(el("h2", "Worth reviewing"));
     const flags = r.flags || [];
@@ -487,7 +487,7 @@
       p.appendChild(el("strong", (f.label || "Note") + ": "));
       p.appendChild(el("span", f.detail || ""));
       box.appendChild(p);
-      if (f.quote) box.appendChild(el("p", "“" + f.quote + "”", "quote"));
+      if (f.quote) box.appendChild(el("p", "\u201C" + f.quote + "\u201D", "quote"));
     });
     box.appendChild(el("p", "These are things to look at, not a judgement of you.", "note"));
 
