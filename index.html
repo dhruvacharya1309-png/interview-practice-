@@ -22,4 +22,472 @@
   button.secondary { background: var(--amber); color: var(--charcoal); }
   button:disabled { opacity: 0.45; cursor: default; }
   .status { font-weight: bold; color: var(--teal); }
-  .note { font-size:
+  .note { font-size: 0.85rem; opacity: 0.75; }
+  .hidden { display: none; }
+  ul { padding-left: 20px; }
+  .level { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #fff; border: 1px solid #cfc6b5; font-size: 0.9rem; margin: 0 6px; }
+  .quote { border-left: 3px solid var(--terracotta); padding-left: 10px; margin: 6px 0; font-style: italic; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid #d9cfbd; vertical-align: top; }
+  .consent label { font-weight: normal; color: var(--charcoal); display: flex; gap: 8px; align-items: flex-start; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Interview Practice</h1>
+  <p class="sub">Speak your answers. Take your time.</p>
+
+  <!-- SETUP -->
+  <div id="setup" class="card">
+    <label for="field">Choose your field</label>
+    <select id="field">
+      <option>Finance</option>
+      <option>HR</option>
+      <option>Marketing</option>
+      <option>Product management</option>
+      <option>International business</option>
+      <option>General</option>
+      <option>Other</option>
+    </select>
+    <label for="count">How many questions? (5 to 25)</label>
+    <input id="count" type="number" min="5" max="25" value="10">
+    <button id="toConsent">Continue</button>
+  </div>
+
+  <!-- CONSENT -->
+  <div id="consent" class="card consent hidden">
+    <h2>Before we start</h2>
+    <p>This practice uses your microphone. Your speech is turned into text by your browser's built-in speech feature. In Chrome, that speech is processed by Google. We measure your pace, pauses, filler words and pitch to write your report.</p>
+    <p>We don't keep the recording or the transcript after you close this page. Your report may mention things that were hard to measure. It may also note answers that sounded read aloud or scripted. These are things to review, not a verdict on you.</p>
+    <label><input type="checkbox" id="agree"> I understand and agree to this.</label>
+    <button id="startBtn" disabled>I agree and start</button>
+    <p class="note" id="supportNote"></p>
+  </div>
+
+  <!-- INTERVIEW -->
+  <div id="interview" class="hidden">
+    <p class="status" id="status"></p>
+    <p class="note" id="counter"></p>
+    <div class="card"><p id="question" style="font-size:1.15rem;margin:0;"></p></div>
+    <p class="note" id="aiNote"></p>
+    <button id="repeatBtn" class="secondary" disabled>Repeat question</button>
+    <button id="finishBtn" disabled>Finish answer</button>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loading" class="card hidden">
+    <p class="status">Writing your report. This takes about a minute.</p>
+  </div>
+
+  <!-- REPORT (filled by the script) -->
+  <div id="report" class="hidden"></div>
+
+</div>
+
+<script>
+  const OPENING = "What describes you the most?";
+
+  const FIELD_QUESTIONS = {
+    "Finance": [
+      "Tell me about a time you worked with numbers to make a decision.",
+      "How would you read a company's profit and loss statement?",
+      "How would you explain a budget variance to someone with no finance background?"
+    ],
+    "HR": [
+      "Tell me about a time you resolved a conflict in a team.",
+      "How would you handle an employee who keeps missing deadlines?",
+      "What makes a hiring process fair, in your view?"
+    ],
+    "Marketing": [
+      "Tell me about a campaign you planned or would like to plan.",
+      "How would you decide which channel to spend money on?",
+      "How do you measure whether a marketing campaign worked?"
+    ],
+    "Product management": [
+      "Tell me about a product you use often and what you would improve.",
+      "How would you decide which feature to build first?",
+      "How do you know when a product is ready to launch?"
+    ],
+    "International business": [
+      "Tell me about a time you worked with people from another culture.",
+      "What would you check before entering a new country's market?",
+      "How would you handle a delay caused by customs or shipping?"
+    ],
+    "General": [
+      "Tell me about a goal you set for yourself and how you reached it.",
+      "Describe a decision you made under pressure.",
+      "What is one thing you would do differently in your last job or studies?"
+    ],
+    "Other": [
+      "Tell me about the work you want to do in your field.",
+      "What is one skill you have built that matters for this work?",
+      "Describe a challenge you faced in this area and how you handled it."
+    ]
+  };
+
+  // Used only if the AI reply is unavailable
+  const FALLBACK_FOLLOWUPS = [
+    "What was the hardest part of that?",
+    "Can you give me a specific example?",
+    "What was the result, and how did you measure it?",
+    "Why did you choose that approach over another?"
+  ];
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  let field = "General", total = 10, current = OPENING, answers = [];
+  let listening = false, endResolve = null;
+  let recog = null, stream = null, audioCtx = null, analyser = null, buf = null, timer = null;
+  let finals = [], startedAt = 0, speechStartAt = 0, lastVoicedAt = 0, pauses = [], pitches = [], sharpSounds = 0, prevRms = 0;
+
+  const $ = id => document.getElementById(id);
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const round = (n, d) => Math.round(n * 10 ** d) / 10 ** d;
+
+  function el(tag, text, cls) {
+    const e = document.createElement(tag);
+    if (text !== undefined) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+  function list(items) {
+    const ul = el("ul");
+    (items || []).forEach(i => ul.appendChild(el("li", i)));
+    return ul;
+  }
+  function show(id) {
+    ["setup", "consent", "interview", "loading", "report"].forEach(x => $(x).classList.toggle("hidden", x !== id));
+  }
+  function setStatus(t) { $("status").textContent = t; }
+
+  // ---- Setup and consent ----
+  if (!SR) {
+    $("supportNote").textContent = "This browser can't do voice practice. Please open the link in Chrome.";
+  }
+  $("agree").onchange = () => { $("startBtn").disabled = !($("agree").checked && SR); };
+
+  $("toConsent").onclick = () => {
+    field = $("field").value;
+    total = Math.min(25, Math.max(5, parseInt($("count").value) || 10));
+    show("consent");
+  };
+
+  $("startBtn").onclick = async () => {
+    try {
+      const test = await navigator.mediaDevices.getUserMedia({ audio: true });
+      test.getTracks().forEach(t => t.stop());
+    } catch (e) {
+      $("supportNote").textContent = "We need your microphone to continue. Please allow it in your browser settings, then try again.";
+      return;
+    }
+    answers = [];
+    show("interview");
+    askQuestion(OPENING, true);
+  };
+
+  // ---- Speaking ----
+  function speak(text) {
+    return new Promise(resolve => {
+      if (!("speechSynthesis" in window)) return resolve();
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "en-IN";
+      const guard = setTimeout(resolve, Math.max(4000, text.length * 120));
+      u.onend = () => { clearTimeout(guard); resolve(); };
+      u.onerror = () => { clearTimeout(guard); resolve(); };
+      speechSynthesis.speak(u);
+    });
+  }
+
+  // ---- Interview loop ----
+  async function askQuestion(text, ai) {
+    current = text;
+    show("interview");
+    $("question").textContent = text;
+    $("counter").textContent = "Question " + (answers.length + 1) + " of " + total;
+    $("aiNote").textContent = ai ? "" : "A standard question is shown because the AI reply was unavailable.";
+    $("finishBtn").disabled = true;
+    $("repeatBtn").disabled = true;
+    setStatus("Speaking…");
+    await speak(text);
+    $("repeatBtn").disabled = false;
+    await listen();
+  }
+
+  async function listen() {
+    setStatus("Listening. Take your time, then tap Finish answer.");
+    await startAudio();
+    $("finishBtn").disabled = false;
+    $("repeatBtn").disabled = true;
+    await new Promise(r => { endResolve = r; });
+    $("finishBtn").disabled = true;
+    setStatus("Thinking…");
+
+    const { transcript, metadata } = await stopAudio();
+    answers.push({ question: current, transcript, metadata });
+
+    if (answers.length >= total) return finishInterview();
+
+    let next;
+    if (answers.length % 2 === 1) {
+      next = await followUp(transcript, metadata);
+    } else {
+      next = { text: pick(FIELD_QUESTIONS[field]), ai: true };
+    }
+    await askQuestion(next.text, next.ai);
+  }
+
+  async function followUp(transcript, metadata) {
+    try {
+      const history = answers.slice(Math.max(0, answers.length - 7), answers.length - 1)
+        .map(a => ({ question: a.question, transcript: a.transcript }));
+      const res = await fetch("/.netlify/functions/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "turn",
+          field,
+          question: current,
+          transcript: transcript || "(no speech recognised)",
+          metadata,
+          history
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.reply) return { text: data.reply, ai: true };
+    } catch (e) { /* fall through */ }
+    return { text: pick(FALLBACK_FOLLOWUPS), ai: false };
+  }
+
+  $("repeatBtn").onclick = () => { if (!listening) speak(current); };
+  $("finishBtn").onclick = () => {
+    if (endResolve) { const r = endResolve; endResolve = null; r(); }
+  };
+
+  // ---- Listening and measuring ----
+  async function startAudio() {
+    finals = [];
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    buf = new Float32Array(analyser.fftSize);
+
+    startedAt = performance.now();
+    speechStartAt = 0; lastVoicedAt = 0; pauses = []; pitches = []; sharpSounds = 0; prevRms = 0;
+    timer = setInterval(sample, 100);
+
+    recog = new SR();
+    recog.lang = "en-IN";
+    recog.continuous = true;
+    recog.interimResults = false;
+    recog.onresult = e => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finals.push(e.results[i][0].transcript);
+      }
+    };
+    recog.onerror = e => {
+      if (e.error === "not-allowed") setStatus("Microphone is blocked. Allow it in your browser settings.");
+    };
+    recog.onend = () => { if (listening) { try { recog.start(); } catch (e) {} } };
+    listening = true;
+    recog.start();
+  }
+
+  function sample() {
+    analyser.getFloatTimeDomainData(buf);
+    const now = performance.now();
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const rms = Math.sqrt(sum / buf.length);
+
+    // Sudden sharp sounds (rough check for typing-like taps)
+    if (rms > 0.08 && prevRms > 0 && rms > prevRms * 6) sharpSounds++;
+    prevRms = rms;
+
+    if (rms > 0.02) {
+      if (!speechStartAt) speechStartAt = now;
+      if (lastVoicedAt && now - lastVoicedAt >= 1000) pauses.push((now - lastVoicedAt) / 1000);
+      lastVoicedAt = now;
+      const f0 = pitchOf(buf, audioCtx.sampleRate);
+      if (f0) pitches.push(12 * Math.log2(f0 / 100));
+    }
+  }
+
+  // Rough pitch estimate (autocorrelation), voice range about 70 to 400 Hz
+  function pitchOf(data, sr) {
+    let best = 0, bestLag = -1;
+    const minLag = Math.floor(sr / 400), maxLag = Math.floor(sr / 70);
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let c = 0;
+      for (let i = 0; i + lag < data.length; i++) c += data[i] * data[i + lag];
+      if (c > best) { best = c; bestLag = lag; }
+    }
+    return bestLag > 0 ? sr / bestLag : 0;
+  }
+
+  async function stopAudio() {
+    listening = false;
+    clearInterval(timer);
+    const endAt = performance.now();
+    try { recog.stop(); } catch (e) {}
+    await sleep(600); // let the last words arrive
+    stream.getTracks().forEach(t => t.stop());
+    audioCtx.close();
+
+    const transcript = finals.join(" ").trim();
+    const speakingS = speechStartAt ? (endAt - speechStartAt) / 1000 : 0;
+    return { transcript, metadata: measure(transcript, (endAt - startedAt) / 1000, speakingS) };
+  }
+
+  function spread(values) {
+    if (values.length < 2) return 0;
+    const m = values.reduce((a, b) => a + b, 0) / values.length;
+    return Math.sqrt(values.reduce((a, b) => a + (b - m) ** 2, 0) / values.length);
+  }
+
+  function measure(transcript, durationS, speakingS) {
+    const words = transcript ? transcript.split(/\s+/).length : 0;
+    const fillers = (transcript.match(/\b(um+|uh+|erm|hmm|you know|i mean|basically|actually)\b/gi) || []).length;
+    const sd = spread(pitches);
+    return {
+      duration_s: round(durationS, 1),
+      speaking_s: round(speakingS, 1),
+      words,
+      wpm: speakingS > 5 ? Math.round(words / (speakingS / 60)) : 0,
+      pitch_variance: pitches.length < 5 ? "Not enough voice to measure" : sd < 2 ? "Low" : sd < 5 ? "Normal" : "High",
+      filler_count: fillers,
+      filler_per_min: speakingS > 5 ? round(fillers / (speakingS / 60), 1) : 0,
+      pause_count: pauses.length,
+      long_pause_count: pauses.filter(p => p >= 2).length,
+      longest_pause_s: pauses.length ? round(Math.max(...pauses), 1) : 0,
+      response_delay_s: speechStartAt ? round((speechStartAt - startedAt) / 1000, 1) : null,
+      sharp_sounds_count: sharpSounds
+    };
+  }
+
+  // ---- Report ----
+  async function finishInterview() {
+    show("loading");
+    try {
+      const res = await fetch("/.netlify/functions/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "report",
+          field,
+          turns: answers.map(a => ({
+            question: a.question,
+            transcript: a.transcript || "(no speech recognised)",
+            metadata: a.metadata
+          }))
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Report failed");
+      renderReport(data);
+    } catch (e) {
+      const box = $("report");
+      box.innerHTML = "";
+      box.appendChild(el("p", "The report could not be written just now. Your answers are still here. Try again in a moment."));
+      const retry = el("button", "Try again");
+      retry.onclick = finishInterview;
+      box.appendChild(retry);
+      show("report");
+    }
+  }
+
+  function deliveryTable(metas) {
+    const v = metas.filter(m => m && m.words > 0);
+    const avg = k => v.length ? v.reduce((s, m) => s + (Number(m[k]) || 0), 0) / v.length : 0;
+    const sum = k => v.reduce((s, m) => s + (Number(m[k]) || 0), 0);
+    const delays = v.map(m => m.response_delay_s).filter(d => d !== null && d !== undefined);
+
+    const rows = [
+      ["Pace", v.length ? Math.round(avg("wpm")) + " words per minute (comfortable range is about 110 to 160)" : "Not measured"],
+      ["Pitch variation, per answer", v.map(m => m.pitch_variance).join(" / ") || "Not measured"],
+      ["Filler words", sum("filler_count") + " in total (about " + avg("filler_per_min").toFixed(1) + " per minute)"],
+      ["Pauses", sum("pause_count") + " in total, " + sum("long_pause_count") + " of them two seconds or longer"],
+      ["Longest pause", Math.max(0, ...v.map(m => Number(m.longest_pause_s) || 0)) + " seconds"],
+      ["Time before you started speaking", delays.length ? (delays.reduce((a, b) => a + b, 0) / delays.length).toFixed(1) + " seconds on average" : "Not measured"],
+      ["Typing-like sounds counted", sum("sharp_sounds_count") + " (worth reviewing, not confirmed)"]
+    ];
+
+    const t = el("table");
+    rows.forEach(([label, value]) => {
+      const tr = el("tr");
+      tr.appendChild(el("th", label));
+      tr.appendChild(el("td", value));
+      t.appendChild(tr);
+    });
+    return t;
+  }
+
+  function renderReport(r) {
+    const box = $("report");
+    box.innerHTML = "";
+    box.className = "card";
+
+    box.appendChild(el("h2", "Your practice report"));
+    box.appendChild(el("p", r.summary || ""));
+
+    box.appendChild(el("h2", "Scores (first session, so this is your baseline)"));
+    (r.scores || []).forEach(s => {
+      const p = el("p");
+      p.appendChild(el("strong", s.area + ":"));
+      p.appendChild(el("span", s.level, "level"));
+      p.appendChild(el("span", s.note || ""));
+      box.appendChild(p);
+    });
+
+    box.appendChild(el("h2", "What worked"));
+    box.appendChild(list(r.strengths));
+
+    box.appendChild(el("h2", "Focus next"));
+    box.appendChild(list((r.focus || []).slice(0, 2)));
+    if (r.nextStep) box.appendChild(el("p", r.nextStep));
+
+    box.appendChild(el("h2", "How you spoke"));
+    box.appendChild(deliveryTable(answers.map(a => a.metadata)));
+
+    const ev = r.evidence || {};
+    if ((ev.numbers || []).length) { box.appendChild(el("p", "Numbers and results you gave:")); box.appendChild(list(ev.numbers)); }
+    if ((ev.tools_and_skills || []).length) { box.appendChild(el("p", "Tools and skills you named:")); box.appendChild(list(ev.tools_and_skills)); }
+    (ev.quotes || []).forEach(q => box.appendChild(el("p", "\u201C" + q + "\u201D", "quote")));
+
+    box.appendChild(el("h2", "Worth reviewing"));
+    const flags = r.flags || [];
+    if (!flags.length) box.appendChild(el("p", "Nothing was flagged."));
+    flags.forEach(f => {
+      const p = el("p");
+      p.appendChild(el("strong", (f.label || "Note") + ": "));
+      p.appendChild(el("span", f.detail || ""));
+      box.appendChild(p);
+      if (f.quote) box.appendChild(el("p", "\u201C" + f.quote + "\u201D", "quote"));
+    });
+    box.appendChild(el("p", "These are things to look at, not a judgement of you.", "note"));
+
+    box.appendChild(el("h2", "What was hard to detect"));
+    box.appendChild(list([
+      "Voices other than yours are not measured in this version.",
+      "Typing-like sounds are counted, but they can be confused with other sudden sounds.",
+      ...(r.hard_to_detect || [])
+    ]));
+
+    const again = el("button", "Try again", "secondary");
+    again.onclick = () => { answers = []; show("setup"); };
+    const home = el("button", "Back to home");
+    home.onclick = () => { answers = []; show("setup"); };
+    box.appendChild(again);
+    box.appendChild(home);
+
+    show("report");
+  }
+
+  show("setup");
+</script>
+</body>
+</html>
