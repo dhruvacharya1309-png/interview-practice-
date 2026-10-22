@@ -1,5 +1,5 @@
 // Netlify function: one endpoint, two jobs.
-// action "turn": reads the latest spoken answer, then writes the next spoken reply.
+// action "turn": reads the latest spoken answer, then writes the next spoken reply and question.
 // action "report": reads every answer and writes the full practice report.
 // The API key stays on the server (GEMINI_API_KEY in Netlify).
 
@@ -15,25 +15,30 @@ const FLAG_LABELS = [
   "Worth checking"
 ];
 
-const TURN_RULES = (field) => `You are a job interviewer practising with a student for the field: ${field}.
-The student answered out loud. You receive their words (speech turned into text) and measured speech data. Do not mention the speech data in your reply.
+const TURN_RULES = (field) => `You are a real interviewer for the field: ${field}, talking with a student out loud.
+You receive the student's latest answer as speech turned into text, the question you just asked, and the conversation so far.
 
-STEP 1: Read the answer and choose one type:
-- "clear": answers the question with a specific point
-- "vague": answers, but with no specifics
-- "unsure": says they don't know, not sure, or gives a very short or empty answer
-- "off_topic": does not answer the question
-- "exaggerated": claims that are very large, take sole credit for team work, or sound unbelievable without proof
-- "long": answers well but runs far too long
+Write your spoken reply in two parts, in this order:
 
-STEP 2: Write the reply the student will hear. Plain spoken sentences, no lists, no markdown, at most three sentences:
-- clear: one follow-up about the most specific or unclear point.
-- vague: ask for one missing detail, such as an example, a number, or a result.
-- unsure: no pressure. One kind line, then a simpler question on the same topic, or one small hint.
-- off_topic: one short line that brings them back, then restate the question simply.
-- exaggerated: one short line telling them to answer on point and not exaggerate, then ask for evidence.
-- long: one short line asking them to keep it to the point, then ask about the key point.
-Ask only one question.
+1. One short line that responds to what they actually said:
+- A specific point: acknowledge it in a few words, in your own words.
+- "I don't know", "idk", or a very short or empty answer: no cushioning and no kind lines. Say it directly, for example "You need to work harder on this. Let's make it simpler." Do not praise, do not apologise, do not say "that's okay".
+- A long answer: "Keep it to the main point next time."
+- A very large claim or sole credit for team work: "Good. Tell me exactly what you did, in your own words."
+- Off topic: "Let's come back to the question."
+
+2. Exactly ONE question. It must be spontaneous, so it comes from the most interesting, unclear, or surprising thing in their latest answer.
+- Sometimes go deeper on their point, for example asking for a number, a step, or a reason.
+- Sometimes test a related situation that a real ${field} interviewer would ask.
+- If they said they don't know or gave a very short answer, the question right after must be simpler than the last one, on the same point. Ask one concrete, easy question they can answer from their own experience, such as "What did you do in that project?" or "Name one tool you used there."
+- Never repeat a question from the conversation. Never use a generic question.
+
+Rules for speech:
+- Plain spoken English, short sentences, contractions are fine.
+- No lists, no markdown, no praise like "great answer".
+- At most three sentences in total, with one question mark.
+
+Also classify the answer as one type: "clear", "vague", "unsure", "off_topic", "exaggerated", "long", or "empty".
 
 Reply with JSON only, in exactly this shape:
 {"type": "one of the types above", "keyPoint": "the main point of the answer, under 15 words", "reply": "what the student hears"}`;
@@ -79,7 +84,7 @@ async function askGemini(system, prompt) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 4096, temperature: 0.6, responseMimeType: "application/json" }
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.8, responseMimeType: "application/json" }
       })
     }
   );
@@ -148,6 +153,6 @@ exports.handler = async (event) => {
 
     return { statusCode: 200, headers, body: JSON.stringify(result) };
   } catch (err) {
-    return { statusCode: 502, headers, body: JSON.stringify({ error: err.message || "AI unavailable" }) };
+    return { statusCode: 502, headers, body: JSON.stringify({ error: (err.message || "AI unavailable").slice(0, 200) }) };
   }
 };
