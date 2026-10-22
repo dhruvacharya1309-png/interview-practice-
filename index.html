@@ -27,6 +27,10 @@
   ul { padding-left: 20px; }
   .level { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #fff; border: 1px solid #cfc6b5; font-size: 0.9rem; margin: 0 6px; }
   .quote { border-left: 3px solid var(--terracotta); padding-left: 10px; margin: 6px 0; font-style: italic; }
+  .heard { background: #fff; border-radius: 8px; padding: 10px 12px; min-height: 3.2em; font-size: 1.05rem; }
+  .log { background: #fff; border-radius: 8px; padding: 8px 12px; max-height: 220px; overflow-y: auto; font-size: 0.92rem; }
+  .log p { margin: 4px 0; }
+  .log .q { color: var(--teal); font-weight: bold; }
   table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
   td, th { text-align: left; padding: 6px 4px; border-bottom: 1px solid #d9cfbd; vertical-align: top; }
   .consent label { font-weight: normal; color: var(--charcoal); display: flex; gap: 8px; align-items: flex-start; }
@@ -71,6 +75,15 @@
     <p class="note" id="counter"></p>
     <div class="card"><p id="question" style="font-size:1.15rem;margin:0;"></p></div>
     <p class="note" id="aiNote"></p>
+
+    <p class="note" style="margin:0 0 4px;">What I'm hearing from you</p>
+    <div id="liveText" class="heard"></div>
+
+    <details style="margin-top:12px;">
+      <summary class="note">Transcript so far</summary>
+      <div id="transcriptLog" class="log"></div>
+    </details>
+
     <button id="repeatBtn" class="secondary" disabled>Repeat question</button>
     <button id="finishBtn" disabled>Finish answer</button>
   </div>
@@ -88,47 +101,9 @@
 <script>
   const OPENING = "What describes you the most?";
 
-  const FIELD_QUESTIONS = {
-    "Finance": [
-      "Tell me about a time you worked with numbers to make a decision.",
-      "How would you read a company's profit and loss statement?",
-      "How would you explain a budget variance to someone with no finance background?"
-    ],
-    "HR": [
-      "Tell me about a time you resolved a conflict in a team.",
-      "How would you handle an employee who keeps missing deadlines?",
-      "What makes a hiring process fair, in your view?"
-    ],
-    "Marketing": [
-      "Tell me about a campaign you planned or would like to plan.",
-      "How would you decide which channel to spend money on?",
-      "How do you measure whether a marketing campaign worked?"
-    ],
-    "Product management": [
-      "Tell me about a product you use often and what you would improve.",
-      "How would you decide which feature to build first?",
-      "How do you know when a product is ready to launch?"
-    ],
-    "International business": [
-      "Tell me about a time you worked with people from another culture.",
-      "What would you check before entering a new country's market?",
-      "How would you handle a delay caused by customs or shipping?"
-    ],
-    "General": [
-      "Tell me about a goal you set for yourself and how you reached it.",
-      "Describe a decision you made under pressure.",
-      "What is one thing you would do differently in your last job or studies?"
-    ],
-    "Other": [
-      "Tell me about the work you want to do in your field.",
-      "What is one skill you have built that matters for this work?",
-      "Describe a challenge you faced in this area and how you handled it."
-    ]
-  };
-
-  // Used only if the AI reply is unavailable
+  // Used only if the AI is unavailable. The page says so when this is used.
   const FALLBACK_FOLLOWUPS = [
-    "What was the hardest part of that?",
+    "Can you tell me a bit more about that?",
     "Can you give me a specific example?",
     "What was the result, and how did you measure it?",
     "Why did you choose that approach over another?"
@@ -139,7 +114,7 @@
   let field = "General", total = 10, current = OPENING, answers = [];
   let listening = false, endResolve = null;
   let recog = null, stream = null, audioCtx = null, analyser = null, buf = null, timer = null;
-  let finals = [], startedAt = 0, speechStartAt = 0, lastVoicedAt = 0, pauses = [], pitches = [], sharpSounds = 0, prevRms = 0;
+  let finals = [], liveInterim = "", startedAt = 0, speechStartAt = 0, lastVoicedAt = 0, pauses = [], pitches = [], sharpSounds = 0, prevRms = 0;
 
   const $ = id => document.getElementById(id);
   const pick = list => list[Math.floor(Math.random() * list.length)];
@@ -183,31 +158,53 @@
       return;
     }
     answers = [];
+    $("transcriptLog").innerHTML = "";
     show("interview");
-    askQuestion(OPENING, true);
+    askQuestion(OPENING, "");
   };
 
-  // ---- Speaking ----
-  function speak(text) {
+  // ---- Speaking: sentence by sentence, slower, with short pauses ----
+  function pickVoice() {
+    const voices = ("speechSynthesis" in window) ? speechSynthesis.getVoices() : [];
+    return voices.find(v => /^en/i.test(v.lang) && /google/i.test(v.name))
+        || voices.find(v => /^en/i.test(v.lang) && /natural|premium|enhanced/i.test(v.name))
+        || voices.find(v => /^en/i.test(v.lang))
+        || null;
+  }
+
+  function speakOne(text) {
     return new Promise(resolve => {
-      if (!("speechSynthesis" in window)) return resolve();
-      speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "en-IN";
-      const guard = setTimeout(resolve, Math.max(4000, text.length * 120));
+      u.rate = 0.9;
+      u.pitch = 1.0;
+      const v = pickVoice();
+      if (v) u.voice = v;
+      const guard = setTimeout(resolve, Math.max(3000, text.length * 110));
       u.onend = () => { clearTimeout(guard); resolve(); };
       u.onerror = () => { clearTimeout(guard); resolve(); };
       speechSynthesis.speak(u);
     });
   }
 
+  async function speak(text) {
+    if (!("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    const sentences = text.split(/(?<=[.?!])\s+/).filter(s => s.trim());
+    for (const s of sentences) {
+      await speakOne(s);
+      await sleep(250);
+    }
+  }
+
   // ---- Interview loop ----
-  async function askQuestion(text, ai) {
+  async function askQuestion(text, note) {
     current = text;
     show("interview");
     $("question").textContent = text;
     $("counter").textContent = "Question " + (answers.length + 1) + " of " + total;
-    $("aiNote").textContent = ai ? "" : "A standard question is shown because the AI reply was unavailable.";
+    $("aiNote").textContent = note || "";
+    $("liveText").textContent = "";
     $("finishBtn").disabled = true;
     $("repeatBtn").disabled = true;
     setStatus("Speaking…");
@@ -228,15 +225,15 @@
     const { transcript, metadata } = await stopAudio();
     answers.push({ question: current, transcript, metadata });
 
+    const log = $("transcriptLog");
+    log.appendChild(el("p", "Q: " + current, "q"));
+    log.appendChild(el("p", "A: " + (transcript || "(nothing recognised)")));
+    log.scrollTop = log.scrollHeight;
+
     if (answers.length >= total) return finishInterview();
 
-    let next;
-    if (answers.length % 2 === 1) {
-      next = await followUp(transcript, metadata);
-    } else {
-      next = { text: pick(FIELD_QUESTIONS[field]), ai: true };
-    }
-    await askQuestion(next.text, next.ai);
+    const next = await followUp(transcript, metadata);
+    await askQuestion(next.text, next.note);
   }
 
   async function followUp(transcript, metadata) {
@@ -256,9 +253,11 @@
         })
       });
       const data = await res.json();
-      if (res.ok && data.reply) return { text: data.reply, ai: true };
-    } catch (e) { /* fall through */ }
-    return { text: pick(FALLBACK_FOLLOWUPS), ai: false };
+      if (res.ok && data.reply) return { text: data.reply, note: "" };
+      return { text: pick(FALLBACK_FOLLOWUPS), note: "AI reply unavailable (" + (data.error || "unknown error") + "). A standard question is shown." };
+    } catch (e) {
+      return { text: pick(FALLBACK_FOLLOWUPS), note: "AI reply unavailable (" + e.message + "). A standard question is shown." };
+    }
   }
 
   $("repeatBtn").onclick = () => { if (!listening) speak(current); };
@@ -266,9 +265,10 @@
     if (endResolve) { const r = endResolve; endResolve = null; r(); }
   };
 
-  // ---- Listening and measuring ----
+  // ---- Listening, live transcript and measuring ----
   async function startAudio() {
     finals = [];
+    liveInterim = "";
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioCtx.createAnalyser();
@@ -283,16 +283,24 @@
     recog = new SR();
     recog.lang = "en-IN";
     recog.continuous = true;
-    recog.interimResults = false;
+    recog.interimResults = true;
+    recog.maxAlternatives = 1;
     recog.onresult = e => {
+      let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finals.push(e.results[i][0].transcript);
+        const r = e.results[i];
+        if (r.isFinal) finals.push(r[0].transcript.trim());
+        else interim += r[0].transcript;
       }
+      liveInterim = interim.trim();
+      $("liveText").textContent = (finals.join(" ") + " " + liveInterim).trim();
     };
     recog.onerror = e => {
       if (e.error === "not-allowed") setStatus("Microphone is blocked. Allow it in your browser settings.");
     };
-    recog.onend = () => { if (listening) { try { recog.start(); } catch (e) {} } };
+    recog.onend = () => {
+      if (listening) { try { recog.start(); } catch (e) {} }
+    };
     listening = true;
     recog.start();
   }
@@ -334,11 +342,11 @@
     clearInterval(timer);
     const endAt = performance.now();
     try { recog.stop(); } catch (e) {}
-    await sleep(600); // let the last words arrive
+    await sleep(800); // let the last words arrive
     stream.getTracks().forEach(t => t.stop());
     audioCtx.close();
 
-    const transcript = finals.join(" ").trim();
+    const transcript = (finals.join(" ") + " " + liveInterim).trim();
     const speakingS = speechStartAt ? (endAt - speechStartAt) / 1000 : 0;
     return { transcript, metadata: measure(transcript, (endAt - startedAt) / 1000, speakingS) };
   }
@@ -392,7 +400,8 @@
     } catch (e) {
       const box = $("report");
       box.innerHTML = "";
-      box.appendChild(el("p", "The report could not be written just now. Your answers are still here. Try again in a moment."));
+      box.className = "card";
+      box.appendChild(el("p", "The report could not be written just now. Your answers are still here. Reason: " + e.message));
       const retry = el("button", "Try again");
       retry.onclick = finishInterview;
       box.appendChild(retry);
@@ -426,6 +435,15 @@
     return t;
   }
 
+  function transcriptBlock() {
+    const wrap = el("div", undefined, "log");
+    answers.forEach((a, i) => {
+      wrap.appendChild(el("p", (i + 1) + ". Q: " + a.question, "q"));
+      wrap.appendChild(el("p", "A: " + (a.transcript || "(nothing recognised)")));
+    });
+    return wrap;
+  }
+
   function renderReport(r) {
     const box = $("report");
     box.innerHTML = "";
@@ -453,10 +471,13 @@
     box.appendChild(el("h2", "How you spoke"));
     box.appendChild(deliveryTable(answers.map(a => a.metadata)));
 
+    box.appendChild(el("h2", "Your words, as heard"));
+    box.appendChild(transcriptBlock());
+
     const ev = r.evidence || {};
     if ((ev.numbers || []).length) { box.appendChild(el("p", "Numbers and results you gave:")); box.appendChild(list(ev.numbers)); }
     if ((ev.tools_and_skills || []).length) { box.appendChild(el("p", "Tools and skills you named:")); box.appendChild(list(ev.tools_and_skills)); }
-    (ev.quotes || []).forEach(q => box.appendChild(el("p", "\u201C" + q + "\u201D", "quote")));
+    (ev.quotes || []).forEach(q => box.appendChild(el("p", "“" + q + "”", "quote")));
 
     box.appendChild(el("h2", "Worth reviewing"));
     const flags = r.flags || [];
@@ -466,7 +487,7 @@
       p.appendChild(el("strong", (f.label || "Note") + ": "));
       p.appendChild(el("span", f.detail || ""));
       box.appendChild(p);
-      if (f.quote) box.appendChild(el("p", "\u201C" + f.quote + "\u201D", "quote"));
+      if (f.quote) box.appendChild(el("p", "“" + f.quote + "”", "quote"));
     });
     box.appendChild(el("p", "These are things to look at, not a judgement of you.", "note"));
 
